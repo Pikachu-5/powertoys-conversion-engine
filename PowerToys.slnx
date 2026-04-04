@@ -440,6 +440,9 @@
   <Folder Name="/modules/FileLocksmith/Tests/">
     <Project Path="src/modules/FileLocksmith/FileLocksmithCLI/tests/FileLocksmithCLIUnitTests.vcxproj" Id="a1b2c3d4-e5f6-7890-1234-567890abcdef" />
   </Folder>
+  <Folder Name="/modules/FileConverter/">
+    <Project Path="src/modules/FileConverter/FileConverterModuleInterface/FileConverterModuleInterface.vcxproj" Id="7f2a1e2c-3b84-4c84-9e8d-29ef6abf1d11" />
+  </Folder>
   <Folder Name="/modules/Hosts/">
     <Project Path="src/modules/Hosts/Hosts/Hosts.csproj">
       <Platform Solution="*|ARM64" Project="ARM64" />
@@ -1089,6 +1092,7 @@
     <BuildDependency Project="src/modules/awake/AwakeModuleInterface/AwakeModuleInterface.vcxproj" />
     <BuildDependency Project="src/modules/colorPicker/ColorPicker/ColorPicker.vcxproj" />
     <BuildDependency Project="src/modules/colorPicker/ColorPickerUI/ColorPickerUI.csproj" />
+    <BuildDependency Project="src/modules/FileConverter/FileConverterModuleInterface/FileConverterModuleInterface.vcxproj" />
     <BuildDependency Project="src/modules/fancyzones/editor/FancyZonesEditor/FancyZonesEditor.csproj" />
     <BuildDependency Project="src/modules/fancyzones/FancyZonesLib/FancyZonesLib.vcxproj" />
     <BuildDependency Project="src/modules/fancyzones/FancyZonesModuleInterface/FancyZonesModuleInterface.vcxproj" />
