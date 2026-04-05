@@ -1,6 +1,11 @@
+// Copyright (c) Microsoft Corporation
+// Licensed under the MIT license.
+
 #include "pch.h"
 
+#include <Constants.h>
 #include <ShlObj.h>
+#include <winrt/Windows.ApplicationModel.Resources.h>
 #include <winrt/Windows.Data.Json.h>
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/base.h>
@@ -14,12 +19,11 @@
 
 using namespace Microsoft::WRL;
 namespace json = winrt::Windows::Data::Json;
+namespace fc_constants = winrt::PowerToys::FileConverter::Constants;
 
 namespace
 {
-    constexpr wchar_t PIPE_NAME_PREFIX[] = L"\\\\.\\pipe\\powertoys_fileconverter_";
     constexpr DWORD PIPE_CONNECT_TIMEOUT_MS = 1000;
-    constexpr wchar_t PARENT_MENU_LABEL[] = L"Convert to...";
 
     enum class FormatGroup
     {
@@ -34,24 +38,54 @@ namespace
 
     struct TargetFormatSpec
     {
-        const wchar_t* label;
+        const wchar_t* label_key;
+        const wchar_t* label_fallback;
         const wchar_t* destination;
         FormatGroup destination_group;
         GUID canonical_name;
     };
 
     constexpr std::array<TargetFormatSpec, 8> TARGET_FORMATS = {
-        TargetFormatSpec{ L"PNG", L"png", FormatGroup::Png, { 0x0a4200f1, 0x74e5, 0x4f59, { 0xbb, 0x5d, 0x79, 0x8a, 0xfa, 0xf8, 0x01, 0x10 } } },
-        TargetFormatSpec{ L"JPG", L"jpg", FormatGroup::Jpeg, { 0x9f0adf10, 0x3fcb, 0x4a22, { 0x9e, 0x4a, 0x9c, 0x9c, 0x5e, 0xc1, 0x16, 0x4a } } },
-        TargetFormatSpec{ L"JPEG", L"jpeg", FormatGroup::Jpeg, { 0x6d94f15d, 0xa2ba, 0x4912, { 0xa8, 0xf6, 0xe3, 0x89, 0xe0, 0xf8, 0x50, 0x76 } } },
-        TargetFormatSpec{ L"BMP", L"bmp", FormatGroup::Bmp, { 0x922d3030, 0x7fdb, 0x4de7, { 0x99, 0x39, 0x15, 0x95, 0x38, 0x0e, 0x81, 0x88 } } },
-        TargetFormatSpec{ L"TIFF", L"tiff", FormatGroup::Tiff, { 0x91fc7a8a, 0x34b9, 0x4ddf, { 0x86, 0xe8, 0x9f, 0xbb, 0x84, 0xf3, 0x55, 0x65 } } },
-        TargetFormatSpec{ L"HEIC", L"heic", FormatGroup::Heif, { 0xd10be4f8, 0x6e5f, 0x4c6d, { 0xa1, 0x45, 0xbe, 0x57, 0x9f, 0x42, 0x75, 0x69 } } },
-        TargetFormatSpec{ L"HEIF", L"heif", FormatGroup::Heif, { 0x7fce9037, 0x12fe, 0x40af, { 0x88, 0x95, 0x6e, 0x7f, 0xe6, 0x29, 0x2b, 0x45 } } },
-        TargetFormatSpec{ L"WebP", L"webp", FormatGroup::Webp, { 0x5fce9315, 0x3d7b, 0x4372, { 0xac, 0x17, 0x35, 0x57, 0x91, 0xcd, 0x17, 0x61 } } },
+        TargetFormatSpec{ L"FileConverter_ContextMenu_Format_Png", L"PNG", fc_constants::FormatPng, FormatGroup::Png, { 0x0a4200f1, 0x74e5, 0x4f59, { 0xbb, 0x5d, 0x79, 0x8a, 0xfa, 0xf8, 0x01, 0x10 } } },
+        TargetFormatSpec{ L"FileConverter_ContextMenu_Format_Jpg", L"JPG", fc_constants::FormatJpg, FormatGroup::Jpeg, { 0x9f0adf10, 0x3fcb, 0x4a22, { 0x9e, 0x4a, 0x9c, 0x9c, 0x5e, 0xc1, 0x16, 0x4a } } },
+        TargetFormatSpec{ L"FileConverter_ContextMenu_Format_Jpeg", L"JPEG", fc_constants::FormatJpeg, FormatGroup::Jpeg, { 0x6d94f15d, 0xa2ba, 0x4912, { 0xa8, 0xf6, 0xe3, 0x89, 0xe0, 0xf8, 0x50, 0x76 } } },
+        TargetFormatSpec{ L"FileConverter_ContextMenu_Format_Bmp", L"BMP", fc_constants::FormatBmp, FormatGroup::Bmp, { 0x922d3030, 0x7fdb, 0x4de7, { 0x99, 0x39, 0x15, 0x95, 0x38, 0x0e, 0x81, 0x88 } } },
+        TargetFormatSpec{ L"FileConverter_ContextMenu_Format_Tiff", L"TIFF", fc_constants::FormatTiff, FormatGroup::Tiff, { 0x91fc7a8a, 0x34b9, 0x4ddf, { 0x86, 0xe8, 0x9f, 0xbb, 0x84, 0xf3, 0x55, 0x65 } } },
+        TargetFormatSpec{ L"FileConverter_ContextMenu_Format_Heic", L"HEIC", fc_constants::FormatHeic, FormatGroup::Heif, { 0xd10be4f8, 0x6e5f, 0x4c6d, { 0xa1, 0x45, 0xbe, 0x57, 0x9f, 0x42, 0x75, 0x69 } } },
+        TargetFormatSpec{ L"FileConverter_ContextMenu_Format_Heif", L"HEIF", fc_constants::FormatHeif, FormatGroup::Heif, { 0x7fce9037, 0x12fe, 0x40af, { 0x88, 0x95, 0x6e, 0x7f, 0xe6, 0x29, 0x2b, 0x45 } } },
+        TargetFormatSpec{ L"FileConverter_ContextMenu_Format_Webp", L"WebP", fc_constants::FormatWebp, FormatGroup::Webp, { 0x5fce9315, 0x3d7b, 0x4372, { 0xac, 0x17, 0x35, 0x57, 0x91, 0xcd, 0x17, 0x61 } } },
     };
 
-    std::wstring get_pipe_name_for_current_session()
+    std::wstring LoadLocalizedString(std::wstring_view key, std::wstring_view fallback)
+    {
+        try
+        {
+            static const auto loader = winrt::Windows::ApplicationModel::Resources::ResourceLoader::GetForViewIndependentUse(L"Resources");
+            const auto value = loader.GetString(winrt::hstring{ key });
+            if (!value.empty())
+            {
+                return value.c_str();
+            }
+        }
+        catch (...)
+        {
+        }
+
+        return std::wstring{ fallback };
+    }
+
+    std::wstring GetContextMenuParentLabel()
+    {
+        static const std::wstring label = LoadLocalizedString(L"FileConverter_ContextMenu_Entry", L"Convert to...");
+        return label;
+    }
+
+    std::wstring GetTargetFormatLabel(const TargetFormatSpec& spec)
+    {
+        return LoadLocalizedString(spec.label_key, spec.label_fallback);
+    }
+
+    std::wstring GetPipeNameForCurrentSession()
     {
         DWORD session_id = 0;
         if (!ProcessIdToSessionId(GetCurrentProcessId(), &session_id))
@@ -59,10 +93,10 @@ namespace
             session_id = 0;
         }
 
-        return std::wstring(PIPE_NAME_PREFIX) + std::to_wstring(session_id);
+        return std::wstring(fc_constants::PipeNamePrefix) + std::to_wstring(session_id);
     }
 
-    HRESULT get_selected_paths(IShellItemArray* selection, std::vector<std::wstring>& paths)
+    HRESULT GetSelectedPaths(IShellItemArray* selection, std::vector<std::wstring>& paths)
     {
         if (selection == nullptr)
         {
@@ -106,7 +140,7 @@ namespace
         return paths.empty() ? E_FAIL : S_OK;
     }
 
-    HRESULT get_selected_paths(IDataObject* data_object, std::vector<std::wstring>& paths)
+    HRESULT GetSelectedPaths(IDataObject* data_object, std::vector<std::wstring>& paths)
     {
         if (data_object == nullptr)
         {
@@ -120,10 +154,10 @@ namespace
             return hr;
         }
 
-        return get_selected_paths(shell_item_array.Get(), paths);
+        return GetSelectedPaths(shell_item_array.Get(), paths);
     }
 
-    std::wstring to_lower(std::wstring value)
+    std::wstring ToLower(std::wstring value)
     {
         std::transform(value.begin(), value.end(), value.begin(), [](wchar_t ch) {
             return static_cast<wchar_t>(std::towlower(ch));
@@ -132,35 +166,35 @@ namespace
         return value;
     }
 
-    FormatGroup extension_to_group(const std::wstring& extension)
+    FormatGroup ExtensionToGroup(const std::wstring& extension)
     {
-        const std::wstring lower = to_lower(extension);
-        if (lower == L".png")
+        const std::wstring lower = ToLower(extension);
+        if (lower == fc_constants::ExtensionPng)
         {
             return FormatGroup::Png;
         }
 
-        if (lower == L".jpg" || lower == L".jpeg")
+        if (lower == fc_constants::ExtensionJpg || lower == fc_constants::ExtensionJpeg)
         {
             return FormatGroup::Jpeg;
         }
 
-        if (lower == L".bmp")
+        if (lower == fc_constants::ExtensionBmp)
         {
             return FormatGroup::Bmp;
         }
 
-        if (lower == L".tif" || lower == L".tiff")
+        if (lower == fc_constants::ExtensionTif || lower == fc_constants::ExtensionTiff)
         {
             return FormatGroup::Tiff;
         }
 
-        if (lower == L".heic" || lower == L".heif")
+        if (lower == fc_constants::ExtensionHeic || lower == fc_constants::ExtensionHeif)
         {
             return FormatGroup::Heif;
         }
 
-        if (lower == L".webp")
+        if (lower == fc_constants::ExtensionWebp)
         {
             return FormatGroup::Webp;
         }
@@ -168,7 +202,7 @@ namespace
         return FormatGroup::Unknown;
     }
 
-    bool is_path_eligible_source(const std::wstring& path, FormatGroup& group)
+    bool IsPathEligibleSource(const std::wstring& path, FormatGroup& group)
     {
         const wchar_t* extension = PathFindExtension(path.c_str());
         if (extension == nullptr || extension[0] == L'\0')
@@ -176,7 +210,7 @@ namespace
             return false;
         }
 
-        group = extension_to_group(extension);
+        group = ExtensionToGroup(extension);
         if (group == FormatGroup::Unknown)
         {
             return false;
@@ -189,7 +223,7 @@ namespace
         return perceived_type == PERCEIVED_TYPE_IMAGE;
     }
 
-    bool can_convert_paths(const std::vector<std::wstring>& paths, std::optional<FormatGroup> destination_group)
+    bool CanConvertPaths(const std::vector<std::wstring>& paths, std::optional<FormatGroup> destination_group)
     {
         if (paths.empty())
         {
@@ -199,7 +233,7 @@ namespace
         for (const auto& path : paths)
         {
             FormatGroup source_group = FormatGroup::Unknown;
-            if (!is_path_eligible_source(path, source_group))
+            if (!IsPathEligibleSource(path, source_group))
             {
                 return false;
             }
@@ -213,11 +247,11 @@ namespace
         return true;
     }
 
-    bool has_any_available_destination(const std::vector<std::wstring>& paths)
+    bool HasAnyAvailableDestination(const std::vector<std::wstring>& paths)
     {
         for (const auto& spec : TARGET_FORMATS)
         {
-            if (can_convert_paths(paths, spec.destination_group))
+            if (CanConvertPaths(paths, spec.destination_group))
             {
                 return true;
             }
@@ -226,9 +260,9 @@ namespace
         return false;
     }
 
-    const TargetFormatSpec* find_target_format(std::wstring_view destination)
+    const TargetFormatSpec* FindTargetFormat(std::wstring_view destination)
     {
-        const std::wstring lower_destination = to_lower(std::wstring(destination));
+        const std::wstring lower_destination = ToLower(std::wstring(destination));
         for (const auto& spec : TARGET_FORMATS)
         {
             if (lower_destination == spec.destination)
@@ -240,11 +274,11 @@ namespace
         return nullptr;
     }
 
-    std::string build_format_convert_payload(const std::vector<std::wstring>& paths, std::wstring_view destination)
+    std::string BuildFormatConvertPayload(const std::vector<std::wstring>& paths, std::wstring_view destination)
     {
         json::JsonObject payload;
-        payload.Insert(L"action", json::JsonValue::CreateStringValue(L"FormatConvert"));
-        payload.Insert(L"destination", json::JsonValue::CreateStringValue(destination.data()));
+        payload.Insert(fc_constants::JsonActionKey, json::JsonValue::CreateStringValue(fc_constants::ActionFormatConvert));
+        payload.Insert(fc_constants::JsonDestinationKey, json::JsonValue::CreateStringValue(destination.data()));
 
         json::JsonArray files;
         for (const auto& path : paths)
@@ -252,19 +286,19 @@ namespace
             files.Append(json::JsonValue::CreateStringValue(path));
         }
 
-        payload.Insert(L"files", files);
+        payload.Insert(fc_constants::JsonFilesKey, files);
         return winrt::to_string(payload.Stringify());
     }
 
-    HRESULT send_format_convert_request(const std::vector<std::wstring>& paths, std::wstring_view destination)
+    HRESULT SendFormatConvertRequest(const std::vector<std::wstring>& paths, std::wstring_view destination)
     {
-        const TargetFormatSpec* target = find_target_format(destination);
-        if (target == nullptr || !can_convert_paths(paths, target->destination_group))
+        const TargetFormatSpec* target = FindTargetFormat(destination);
+        if (target == nullptr || !CanConvertPaths(paths, target->destination_group))
         {
             return E_INVALIDARG;
         }
 
-        const std::wstring pipe_name = get_pipe_name_for_current_session();
+        const std::wstring pipe_name = GetPipeNameForCurrentSession();
         if (!WaitNamedPipeW(pipe_name.c_str(), PIPE_CONNECT_TIMEOUT_MS))
         {
             return HRESULT_FROM_WIN32(GetLastError());
@@ -284,7 +318,7 @@ namespace
             return HRESULT_FROM_WIN32(GetLastError());
         }
 
-        const std::string payload = build_format_convert_payload(paths, target->destination);
+        const std::string payload = BuildFormatConvertPayload(paths, target->destination);
 
         DWORD bytes_written = 0;
         const BOOL write_result = WriteFile(
@@ -315,7 +349,8 @@ namespace
 
         IFACEMETHODIMP GetTitle(_In_opt_ IShellItemArray*, _Outptr_result_nullonfailure_ PWSTR* name)
         {
-            return SHStrDup(m_spec.label, name);
+            const auto label = GetTargetFormatLabel(m_spec);
+            return SHStrDup(label.c_str(), name);
         }
 
         IFACEMETHODIMP GetIcon(_In_opt_ IShellItemArray*, _Outptr_result_nullonfailure_ PWSTR* icon)
@@ -346,12 +381,12 @@ namespace
             }
 
             std::vector<std::wstring> paths;
-            if (FAILED(get_selected_paths(selection, paths)))
+            if (FAILED(GetSelectedPaths(selection, paths)))
             {
                 return S_OK;
             }
 
-            if (can_convert_paths(paths, m_spec.destination_group))
+            if (CanConvertPaths(paths, m_spec.destination_group))
             {
                 *cmd_state = ECS_ENABLED;
             }
@@ -367,9 +402,9 @@ namespace
             }
 
             std::vector<std::wstring> paths;
-            if (SUCCEEDED(get_selected_paths(selection, paths)))
+            if (SUCCEEDED(GetSelectedPaths(selection, paths)))
             {
-                (void)send_format_convert_request(paths, m_spec.destination);
+                (void)SendFormatConvertRequest(paths, m_spec.destination);
             }
 
             return S_OK;
@@ -472,7 +507,8 @@ class __declspec(uuid("57EC18F5-24D5-4DC6-AE2E-9D0F7A39F8BA")) FileConverterCont
 public:
     IFACEMETHODIMP GetTitle(_In_opt_ IShellItemArray*, _Outptr_result_nullonfailure_ PWSTR* name)
     {
-        return SHStrDup(PARENT_MENU_LABEL, name);
+        const auto label = GetContextMenuParentLabel();
+        return SHStrDup(label.c_str(), name);
     }
 
     IFACEMETHODIMP GetIcon(_In_opt_ IShellItemArray*, _Outptr_result_nullonfailure_ PWSTR* icon)
@@ -503,12 +539,12 @@ public:
         }
 
         std::vector<std::wstring> paths;
-        if (FAILED(get_selected_paths(selection, paths)))
+        if (FAILED(GetSelectedPaths(selection, paths)))
         {
             return S_OK;
         }
 
-        if (has_any_available_destination(paths))
+        if (HasAnyAvailableDestination(paths))
         {
             *cmd_state = ECS_ENABLED;
         }
@@ -564,7 +600,7 @@ public:
         }
 
         std::vector<std::wstring> paths;
-        if (FAILED(get_selected_paths(m_data_object.Get(), paths)) || !has_any_available_destination(paths))
+        if (FAILED(GetSelectedPaths(m_data_object.Get(), paths)) || !HasAnyAvailableDestination(paths))
         {
             return MAKE_HRESULT(SEVERITY_SUCCESS, FACILITY_NULL, 0);
         }
@@ -581,12 +617,14 @@ public:
         for (size_t i = 0; i < TARGET_FORMATS.size(); ++i)
         {
             const auto& format = TARGET_FORMATS[i];
-            if (!can_convert_paths(paths, format.destination_group))
+            if (!CanConvertPaths(paths, format.destination_group))
             {
                 continue;
             }
 
-            if (!InsertMenuW(sub_menu, sub_menu_index, MF_BYPOSITION | MF_STRING, command_id, format.label))
+            const auto target_label = GetTargetFormatLabel(format);
+
+            if (!InsertMenuW(sub_menu, sub_menu_index, MF_BYPOSITION | MF_STRING, command_id, target_label.c_str()))
             {
                 const HRESULT hr = HRESULT_FROM_WIN32(GetLastError());
                 DestroyMenu(sub_menu);
@@ -605,7 +643,8 @@ public:
             return MAKE_HRESULT(SEVERITY_SUCCESS, FACILITY_NULL, 0);
         }
 
-        if (!InsertMenuW(menu, index_menu, MF_BYPOSITION | MF_POPUP | MF_STRING, reinterpret_cast<UINT_PTR>(sub_menu), PARENT_MENU_LABEL))
+        const auto parent_label = GetContextMenuParentLabel();
+        if (!InsertMenuW(menu, index_menu, MF_BYPOSITION | MF_POPUP | MF_STRING, reinterpret_cast<UINT_PTR>(sub_menu), parent_label.c_str()))
         {
             const HRESULT hr = HRESULT_FROM_WIN32(GetLastError());
             DestroyMenu(sub_menu);
@@ -643,12 +682,12 @@ public:
         const auto& target = TARGET_FORMATS[target_index];
 
         std::vector<std::wstring> paths;
-        if (FAILED(get_selected_paths(m_data_object.Get(), paths)) || !can_convert_paths(paths, target.destination_group))
+        if (FAILED(GetSelectedPaths(m_data_object.Get(), paths)) || !CanConvertPaths(paths, target.destination_group))
         {
             return S_OK;
         }
 
-        (void)send_format_convert_request(paths, target.destination);
+        (void)SendFormatConvertRequest(paths, target.destination);
         return S_OK;
     }
 

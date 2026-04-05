@@ -51,6 +51,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="AppxManifest.xml" />
+    <None Include="..\Strings\en-us\Resources.resw" />
     <None Include="Source.def" />
     <None Include="Assets\FileConverter\LargeTile.png" />
     <None Include="Assets\FileConverter\SmallTile.png" />

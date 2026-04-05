@@ -30,7 +30,11 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
+    <ClInclude Include="Constants.h" />
     <ClInclude Include="FileConversionEngine.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\Strings\en-us\Resources.resw" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">

@@ -1,10 +1,17 @@
+// Copyright (c) Microsoft Corporation
+// Licensed under the MIT license.
+
 #include "pch.h"
 
+#include <Constants.h>
 #include <FileConversionEngine.h>
+#include <common/SettingsAPI/settings_objects.h>
 #include <winrt/Windows.Data.Json.h>
 #include <winrt/Windows.Foundation.Collections.h>
+#include <winrt/Windows.ApplicationModel.Resources.h>
 #include <winrt/base.h>
 #include <common/logger/logger.h>
+#include <common/utils/logger_helper.h>
 #include <common/utils/package.h>
 #include <common/utils/process_path.h>
 #include <common/utils/shell_ext_registration.h>
@@ -25,19 +32,34 @@
 #include <vector>
 
 extern "C" IMAGE_DOS_HEADER __ImageBase;
-namespace json = winrt::Windows::Data::Json;
+namespace winrt_json = winrt::Windows::Data::Json;
+namespace fc_constants = winrt::PowerToys::FileConverter::Constants;
 
 namespace
 {
-    constexpr wchar_t MODULE_NAME[] = L"File Converter";
+    constexpr wchar_t MODULE_NAME_FALLBACK[] = L"File Converter";
     constexpr wchar_t MODULE_KEY[] = L"FileConverter";
-    constexpr wchar_t MODULE_CONFIG[] = LR"({"name":"File Converter","version":"1.0","properties":{}})";
     constexpr wchar_t CONTEXT_MENU_PACKAGE_DISPLAY_NAME[] = L"FileConverterContextMenu";
     constexpr wchar_t CONTEXT_MENU_PACKAGE_FILE_NAME[] = L"FileConverterContextMenuPackage.msix";
     constexpr wchar_t CONTEXT_MENU_PACKAGE_FILE_PREFIX[] = L"FileConverterContextMenuPackage";
     constexpr wchar_t CONTEXT_MENU_HANDLER_CLSID[] = L"{57EC18F5-24D5-4DC6-AE2E-9D0F7A39F8BA}";
-    constexpr wchar_t PIPE_NAME_PREFIX[] = L"\\\\.\\pipe\\powertoys_fileconverter_";
-    constexpr wchar_t ACTION_FORMAT_CONVERT[] = L"FormatConvert";
+    std::wstring LoadLocalizedString(std::wstring_view key, std::wstring_view fallback)
+    {
+        try
+        {
+            static const auto loader = winrt::Windows::ApplicationModel::Resources::ResourceLoader::GetForViewIndependentUse(L"Resources");
+            const auto value = loader.GetString(winrt::hstring{ key });
+            if (!value.empty())
+            {
+                return value.c_str();
+            }
+        }
+        catch (...)
+        {
+        }
+
+        return std::wstring{ fallback };
+    }
 
     struct ConversionRequest
     {
@@ -55,7 +77,7 @@ namespace
         std::wstring first_failed_error;
     };
 
-    runtime_shell_ext::Spec build_win10_context_menu_spec()
+    runtime_shell_ext::Spec BuildWin10ContextMenuSpec()
     {
         runtime_shell_ext::Spec spec;
         spec.clsid = CONTEXT_MENU_HANDLER_CLSID;
@@ -88,7 +110,7 @@ namespace
         return spec;
     }
 
-    std::optional<std::filesystem::path> find_latest_context_menu_package(const std::filesystem::path& context_menu_path)
+    std::optional<std::filesystem::path> FindLatestContextMenuPackage(const std::filesystem::path& context_menu_path)
     {
         const std::filesystem::path stable_package_path = context_menu_path / CONTEXT_MENU_PACKAGE_FILE_NAME;
         if (std::filesystem::exists(stable_package_path))
@@ -150,7 +172,7 @@ namespace
         return candidate_packages.back();
     }
 
-    std::wstring to_lower(std::wstring value)
+    std::wstring ToLower(std::wstring value)
     {
         std::transform(value.begin(), value.end(), value.begin(), [](wchar_t ch) {
             return static_cast<wchar_t>(towlower(ch));
@@ -159,36 +181,36 @@ namespace
         return value;
     }
 
-    std::optional<file_converter::ImageFormat> parse_format(const std::wstring& value)
+    std::optional<file_converter::ImageFormat> ParseFormat(const std::wstring& value)
     {
-        const std::wstring lower = to_lower(value);
+        const std::wstring lower = ToLower(value);
 
-        if (lower == L"png")
+        if (lower == fc_constants::FormatPng)
         {
             return file_converter::ImageFormat::Png;
         }
 
-        if (lower == L"jpeg" || lower == L"jpg")
+        if (lower == fc_constants::FormatJpeg || lower == fc_constants::FormatJpg)
         {
             return file_converter::ImageFormat::Jpeg;
         }
 
-        if (lower == L"bmp")
+        if (lower == fc_constants::FormatBmp)
         {
             return file_converter::ImageFormat::Bmp;
         }
 
-        if (lower == L"tiff" || lower == L"tif")
+        if (lower == fc_constants::FormatTiff || lower == fc_constants::FormatTif)
         {
             return file_converter::ImageFormat::Tiff;
         }
 
-        if (lower == L"heic" || lower == L"heif")
+        if (lower == fc_constants::FormatHeic || lower == fc_constants::FormatHeif)
         {
             return file_converter::ImageFormat::Heif;
         }
 
-        if (lower == L"webp")
+        if (lower == fc_constants::FormatWebp)
         {
             return file_converter::ImageFormat::Webp;
         }
@@ -196,27 +218,27 @@ namespace
         return std::nullopt;
     }
 
-    std::wstring extension_for_format(file_converter::ImageFormat format)
+    std::wstring ExtensionForFormat(file_converter::ImageFormat format)
     {
         switch (format)
         {
         case file_converter::ImageFormat::Jpeg:
-            return L".jpg";
+            return fc_constants::ExtensionJpg;
         case file_converter::ImageFormat::Bmp:
-            return L".bmp";
+            return fc_constants::ExtensionBmp;
         case file_converter::ImageFormat::Tiff:
-            return L".tiff";
+            return fc_constants::ExtensionTiff;
         case file_converter::ImageFormat::Heif:
-            return L".heic";
+            return fc_constants::ExtensionHeic;
         case file_converter::ImageFormat::Webp:
-            return L".webp";
+            return fc_constants::ExtensionWebp;
         case file_converter::ImageFormat::Png:
         default:
-            return L".png";
+            return fc_constants::ExtensionPng;
         }
     }
 
-    std::wstring get_pipe_name_for_current_session()
+    std::wstring GetPipeNameForCurrentSession()
     {
         DWORD session_id = 0;
         if (!ProcessIdToSessionId(GetCurrentProcessId(), &session_id))
@@ -224,10 +246,10 @@ namespace
             session_id = 0;
         }
 
-        return std::wstring(PIPE_NAME_PREFIX) + std::to_wstring(session_id);
+        return std::wstring(fc_constants::PipeNamePrefix) + std::to_wstring(session_id);
     }
 
-    std::string read_pipe_message(HANDLE pipe_handle)
+    std::string ReadPipeMessage(HANDLE pipe_handle)
     {
         constexpr DWORD BUFFER_SIZE = 4096;
         char buffer[BUFFER_SIZE] = {};
@@ -266,7 +288,7 @@ namespace
         return payload;
     }
 
-    bool try_parse_format_convert_request(
+    bool TryParseFormatConvertRequest(
         const std::string& payload,
         ConversionRequest& request,
         std::wstring& rejection_reason)
@@ -276,64 +298,64 @@ namespace
 
         if (payload.empty())
         {
-            rejection_reason = L"empty payload";
+            rejection_reason = LoadLocalizedString(L"FileConverter_Error_EmptyPayload", L"empty payload");
             return false;
         }
 
-        json::JsonObject json_payload;
-        if (!json::JsonObject::TryParse(winrt::to_hstring(payload), json_payload))
+        winrt_json::JsonObject json_payload;
+        if (!winrt_json::JsonObject::TryParse(winrt::to_hstring(payload), json_payload))
         {
-            rejection_reason = L"invalid JSON";
+            rejection_reason = LoadLocalizedString(L"FileConverter_Error_InvalidJson", L"invalid JSON");
             return false;
         }
 
-        if (!json_payload.HasKey(L"action"))
+        if (!json_payload.HasKey(fc_constants::JsonActionKey))
         {
-            rejection_reason = L"missing action";
+            rejection_reason = LoadLocalizedString(L"FileConverter_Error_MissingAction", L"missing action");
             return false;
         }
 
-        const auto action_value = json_payload.GetNamedValue(L"action");
-        if (action_value.ValueType() != json::JsonValueType::String)
+        const auto action_value = json_payload.GetNamedValue(fc_constants::JsonActionKey);
+        if (action_value.ValueType() != winrt_json::JsonValueType::String)
         {
-            rejection_reason = L"action is not a string";
+            rejection_reason = LoadLocalizedString(L"FileConverter_Error_ActionNotString", L"action is not a string");
             return false;
         }
 
-        const auto action = json_payload.GetNamedString(L"action");
-        if (_wcsicmp(action.c_str(), ACTION_FORMAT_CONVERT) != 0)
+        const auto action = json_payload.GetNamedString(fc_constants::JsonActionKey);
+        if (_wcsicmp(action.c_str(), fc_constants::ActionFormatConvert) != 0)
         {
-            rejection_reason = L"unsupported action";
+            rejection_reason = LoadLocalizedString(L"FileConverter_Error_UnsupportedAction", L"unsupported action");
             return false;
         }
 
-        std::wstring destination = L"png";
-        if (json_payload.HasKey(L"destination"))
+        std::wstring destination = fc_constants::FormatPng;
+        if (json_payload.HasKey(fc_constants::JsonDestinationKey))
         {
-            const auto destination_value = json_payload.GetNamedValue(L"destination");
-            if (destination_value.ValueType() == json::JsonValueType::String)
+            const auto destination_value = json_payload.GetNamedValue(fc_constants::JsonDestinationKey);
+            if (destination_value.ValueType() == winrt_json::JsonValueType::String)
             {
-                destination = json_payload.GetNamedString(L"destination").c_str();
+                destination = json_payload.GetNamedString(fc_constants::JsonDestinationKey).c_str();
             }
         }
 
-        if (!json_payload.HasKey(L"files"))
+        if (!json_payload.HasKey(fc_constants::JsonFilesKey))
         {
-            rejection_reason = L"missing files array";
+            rejection_reason = LoadLocalizedString(L"FileConverter_Error_MissingFilesArray", L"missing files array");
             return false;
         }
 
-        const auto files_value = json_payload.GetNamedValue(L"files");
-        if (files_value.ValueType() != json::JsonValueType::Array)
+        const auto files_value = json_payload.GetNamedValue(fc_constants::JsonFilesKey);
+        if (files_value.ValueType() != winrt_json::JsonValueType::Array)
         {
-            rejection_reason = L"files is not an array";
+            rejection_reason = LoadLocalizedString(L"FileConverter_Error_FilesNotArray", L"files is not an array");
             return false;
         }
 
-        const auto files_array = json_payload.GetNamedArray(L"files");
+        const auto files_array = json_payload.GetNamedArray(fc_constants::JsonFilesKey);
         for (const auto& file_value : files_array)
         {
-            if (file_value.ValueType() != json::JsonValueType::String)
+            if (file_value.ValueType() != winrt_json::JsonValueType::String)
             {
                 ++request.skipped_entries;
                 continue;
@@ -351,21 +373,21 @@ namespace
 
         if (request.files.empty())
         {
-            rejection_reason = L"no valid file paths";
+            rejection_reason = LoadLocalizedString(L"FileConverter_Error_NoValidPaths", L"no valid file paths");
             return false;
         }
 
-        const auto parsed_format = parse_format(destination);
+        const auto parsed_format = ParseFormat(destination);
         if (!parsed_format.has_value())
         {
-            rejection_reason = L"unsupported destination format";
+            rejection_reason = LoadLocalizedString(L"FileConverter_Error_UnsupportedDestination", L"unsupported destination format");
             return false;
         }
 
         const auto support = file_converter::IsOutputFormatSupported(parsed_format.value());
         if (FAILED(support.hr))
         {
-            rejection_reason = support.error_message.empty() ? L"requested destination format is unavailable" : support.error_message;
+            rejection_reason = support.error_message.empty() ? LoadLocalizedString(L"FileConverter_Error_DestinationUnavailable", L"requested destination format is unavailable") : support.error_message;
             return false;
         }
 
@@ -373,10 +395,10 @@ namespace
         return true;
     }
 
-    ConversionSummary process_format_convert_request(const ConversionRequest& request)
+    ConversionSummary ProcessFormatConvertRequest(const ConversionRequest& request)
     {
         ConversionSummary summary;
-        const std::wstring output_extension = extension_for_format(request.format);
+        const std::wstring output_extension = ExtensionForFormat(request.format);
         std::unordered_set<std::wstring> seen_files;
 
         for (const auto& file : request.files)
@@ -423,7 +445,7 @@ namespace
         return summary;
     }
 
-    void ensure_context_menu_package_registered()
+    void EnsureContextMenuPackageRegistered()
     {
         if (!package::IsWin11OrGreater())
         {
@@ -437,7 +459,7 @@ namespace
             return;
         }
 
-        const auto package_path = find_latest_context_menu_package(context_menu_path);
+        const auto package_path = FindLatestContextMenuPackage(context_menu_path);
         if (!package_path.has_value())
         {
             return;
@@ -449,30 +471,30 @@ namespace
         }
     }
 
-    void ensure_context_menu_runtime_registered()
+    void EnsureContextMenuRuntimeRegistered()
     {
         if (package::IsWin11OrGreater())
         {
             return;
         }
 
-        (void)runtime_shell_ext::EnsureRegistered(build_win10_context_menu_spec(), reinterpret_cast<HMODULE>(&__ImageBase));
+        (void)runtime_shell_ext::EnsureRegistered(BuildWin10ContextMenuSpec(), reinterpret_cast<HMODULE>(&__ImageBase));
     }
 
-    void unregister_context_menu_runtime()
+    void UnregisterContextMenuRuntime()
     {
         if (package::IsWin11OrGreater())
         {
             return;
         }
 
-        runtime_shell_ext::Unregister(build_win10_context_menu_spec());
+        runtime_shell_ext::Unregister(BuildWin10ContextMenuSpec());
     }
 
     class FileConverterPipeOrchestrator
     {
     public:
-        void start(const std::wstring& pipe_name)
+        void Start(const std::wstring& pipe_name)
         {
             if (m_running.exchange(true))
             {
@@ -480,18 +502,18 @@ namespace
             }
 
             m_pipe_name = pipe_name;
-            m_listener_thread = std::thread(&FileConverterPipeOrchestrator::listener_loop, this);
-            m_worker_thread = std::thread(&FileConverterPipeOrchestrator::worker_loop, this);
+            m_listener_thread = std::thread(&FileConverterPipeOrchestrator::ListenerLoop, this);
+            m_worker_thread = std::thread(&FileConverterPipeOrchestrator::WorkerLoop, this);
         }
 
-        void stop()
+        void Stop()
         {
             if (!m_running.exchange(false))
             {
                 return;
             }
 
-            wake_listener();
+            WakeListener();
             m_queue_cv.notify_all();
 
             if (m_listener_thread.joinable())
@@ -511,23 +533,23 @@ namespace
             }
         }
 
-        void enqueue_action_payload(std::string payload)
+        void EnqueueActionPayload(std::string payload)
         {
             if (!m_running.load())
             {
                 return;
             }
 
-            enqueue_payload(std::move(payload));
+            EnqueuePayload(std::move(payload));
         }
 
         ~FileConverterPipeOrchestrator()
         {
-            stop();
+            Stop();
         }
 
     private:
-        void wake_listener() const
+        void WakeListener() const
         {
             if (m_pipe_name.empty())
             {
@@ -549,7 +571,7 @@ namespace
             }
         }
 
-        void enqueue_payload(std::string payload)
+        void EnqueuePayload(std::string payload)
         {
             {
                 std::scoped_lock lock(m_queue_mutex);
@@ -559,11 +581,11 @@ namespace
             m_queue_cv.notify_one();
         }
 
-        void process_payload(const std::string& payload)
+        void ProcessPayload(const std::string& payload)
         {
             ConversionRequest request;
             std::wstring rejection_reason;
-            if (!try_parse_format_convert_request(payload, request, rejection_reason))
+            if (!TryParseFormatConvertRequest(payload, request, rejection_reason))
             {
                 if (!rejection_reason.empty())
                 {
@@ -573,7 +595,7 @@ namespace
                 return;
             }
 
-            const auto summary = process_format_convert_request(request);
+            const auto summary = ProcessFormatConvertRequest(request);
 
             if (request.skipped_entries > 0)
             {
@@ -595,7 +617,7 @@ namespace
             }
         }
 
-        void worker_loop()
+        void WorkerLoop()
         {
             while (true)
             {
@@ -620,11 +642,11 @@ namespace
                     m_pending_payloads.pop();
                 }
 
-                process_payload(payload);
+                ProcessPayload(payload);
             }
         }
 
-        void listener_loop()
+        void ListenerLoop()
         {
             while (m_running.load())
             {
@@ -656,7 +678,7 @@ namespace
                     continue;
                 }
 
-                const std::string payload = read_pipe_message(pipe_handle);
+                const std::string payload = ReadPipeMessage(pipe_handle);
 
                 FlushFileBuffers(pipe_handle);
                 DisconnectNamedPipe(pipe_handle);
@@ -669,7 +691,7 @@ namespace
 
                 if (!payload.empty())
                 {
-                    enqueue_payload(payload);
+                    EnqueuePayload(payload);
                 }
             }
         }
@@ -687,6 +709,14 @@ namespace
 class FileConverterModule : public PowertoyModuleIface
 {
 public:
+    FileConverterModule()
+    {
+        // Avoid WinRT resource activation during module construction.
+        // The runner loads modules very early, and constructor failures can terminate startup.
+        m_name = MODULE_NAME_FALLBACK;
+        LoggerHelpers::init_logger(m_key, L"ModuleInterface", "fileconverter");
+    }
+
     ~FileConverterModule()
     {
         disable();
@@ -699,25 +729,22 @@ public:
 
     const wchar_t* get_name() override
     {
-        return MODULE_NAME;
+        return m_name.c_str();
     }
 
     const wchar_t* get_key() override
     {
-        return MODULE_KEY;
+        return m_key.c_str();
     }
 
     bool get_config(wchar_t* buffer, int* buffer_size) override
     {
-        const int required_size = static_cast<int>(wcslen(MODULE_CONFIG) + 1);
-        if (buffer == nullptr || *buffer_size < required_size)
-        {
-            *buffer_size = required_size;
-            return false;
-        }
-
-        wcscpy_s(buffer, *buffer_size, MODULE_CONFIG);
-        return true;
+        HINSTANCE hinstance = reinterpret_cast<HINSTANCE>(&__ImageBase);
+        PowerToysSettings::Settings settings(hinstance, get_name());
+        settings.set_description(LoadLocalizedString(L"FileConverter_Settings_Description", L"Convert image files to common formats."));
+        settings.set_overview_link(L"https://aka.ms/PowerToysOverview_FileConverter");
+        settings.set_icon_key(L"pt-file-converter");
+        return settings.serialize_to_buffer(buffer, buffer_size);
     }
 
     void set_config(const wchar_t* /*config*/) override
@@ -731,7 +758,7 @@ public:
             return;
         }
 
-        m_pipe_orchestrator.enqueue_action_payload(winrt::to_string(action));
+        m_pipe_orchestrator.EnqueueActionPayload(winrt::to_string(action));
     }
 
     void enable() override
@@ -741,9 +768,9 @@ public:
             return;
         }
 
-        ensure_context_menu_package_registered();
-        ensure_context_menu_runtime_registered();
-        m_pipe_orchestrator.start(get_pipe_name_for_current_session());
+        EnsureContextMenuPackageRegistered();
+        EnsureContextMenuRuntimeRegistered();
+        m_pipe_orchestrator.Start(GetPipeNameForCurrentSession());
         m_enabled = true;
     }
 
@@ -754,8 +781,8 @@ public:
             return;
         }
 
-        m_pipe_orchestrator.stop();
-        unregister_context_menu_runtime();
+        m_pipe_orchestrator.Stop();
+        UnregisterContextMenuRuntime();
         m_enabled = false;
     }
 
@@ -766,6 +793,8 @@ public:
 
 private:
     bool m_enabled = false;
+    std::wstring m_name;
+    std::wstring m_key = MODULE_KEY;
     FileConverterPipeOrchestrator m_pipe_orchestrator;
 };
 
