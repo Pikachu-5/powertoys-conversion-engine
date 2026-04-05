@@ -61,6 +61,9 @@
             <desktop5:ItemType Type=".jxr">
               <desktop5:Verb Id="FileConverterCommand" Clsid="57EC18F5-24D5-4DC6-AE2E-9D0F7A39F8BA" />
             </desktop5:ItemType>
+            <desktop5:ItemType Type=".png">
+              <desktop5:Verb Id="FileConverterCommand" Clsid="57EC18F5-24D5-4DC6-AE2E-9D0F7A39F8BA" />
+            </desktop5:ItemType>
             <desktop5:ItemType Type=".tif">
               <desktop5:Verb Id="FileConverterCommand" Clsid="57EC18F5-24D5-4DC6-AE2E-9D0F7A39F8BA" />
             </desktop5:ItemType>

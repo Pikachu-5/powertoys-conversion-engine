@@ -10,6 +10,8 @@ namespace file_converter
         Jpeg,
         Bmp,
         Tiff,
+        Heif,
+        Webp,
     };
 
     struct ConversionResult
@@ -24,4 +26,5 @@ namespace file_converter
     };
 
     ConversionResult ConvertImageFile(const std::wstring& input_path, const std::wstring& output_path, ImageFormat format);
+    ConversionResult IsOutputFormatSupported(ImageFormat format);
 }

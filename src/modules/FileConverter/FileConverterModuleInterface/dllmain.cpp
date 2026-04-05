@@ -77,6 +77,7 @@ namespace
             L".jpeg",
             L".jpg",
             L".jxr",
+            L".png",
             L".tif",
             L".tiff",
             L".wdp",
@@ -158,9 +159,14 @@ namespace
         return value;
     }
 
-    file_converter::ImageFormat parse_format(const std::wstring& value)
+    std::optional<file_converter::ImageFormat> parse_format(const std::wstring& value)
     {
         const std::wstring lower = to_lower(value);
+
+        if (lower == L"png")
+        {
+            return file_converter::ImageFormat::Png;
+        }
 
         if (lower == L"jpeg" || lower == L"jpg")
         {
@@ -177,7 +183,17 @@ namespace
             return file_converter::ImageFormat::Tiff;
         }
 
-        return file_converter::ImageFormat::Png;
+        if (lower == L"heic" || lower == L"heif")
+        {
+            return file_converter::ImageFormat::Heif;
+        }
+
+        if (lower == L"webp")
+        {
+            return file_converter::ImageFormat::Webp;
+        }
+
+        return std::nullopt;
     }
 
     std::wstring extension_for_format(file_converter::ImageFormat format)
@@ -190,6 +206,10 @@ namespace
             return L".bmp";
         case file_converter::ImageFormat::Tiff:
             return L".tiff";
+        case file_converter::ImageFormat::Heif:
+            return L".heic";
+        case file_converter::ImageFormat::Webp:
+            return L".webp";
         case file_converter::ImageFormat::Png:
         default:
             return L".png";
@@ -335,7 +355,21 @@ namespace
             return false;
         }
 
-        request.format = parse_format(destination);
+        const auto parsed_format = parse_format(destination);
+        if (!parsed_format.has_value())
+        {
+            rejection_reason = L"unsupported destination format";
+            return false;
+        }
+
+        const auto support = file_converter::IsOutputFormatSupported(parsed_format.value());
+        if (FAILED(support.hr))
+        {
+            rejection_reason = support.error_message.empty() ? L"requested destination format is unavailable" : support.error_message;
+            return false;
+        }
+
+        request.format = parsed_format.value();
         return true;
     }
 
