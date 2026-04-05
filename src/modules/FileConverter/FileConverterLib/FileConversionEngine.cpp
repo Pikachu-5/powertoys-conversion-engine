@@ -30,15 +30,29 @@ namespace
     struct ScopedCom
     {
         HRESULT hr;
+        bool uninitialize;
 
         ScopedCom()
-            : hr(CoInitializeEx(nullptr, COINIT_MULTITHREADED))
+            : hr(E_FAIL), uninitialize(false)
         {
+            // Prefer MTA, but gracefully handle callers that already initialized
+            // COM in a different apartment (e.g. Explorer STA threads).
+            hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+            if (hr == RPC_E_CHANGED_MODE)
+            {
+                hr = S_OK;
+                return;
+            }
+
+            if (SUCCEEDED(hr))
+            {
+                uninitialize = true;
+            }
         }
 
         ~ScopedCom()
         {
-            if (SUCCEEDED(hr))
+            if (uninitialize)
             {
                 CoUninitialize();
             }

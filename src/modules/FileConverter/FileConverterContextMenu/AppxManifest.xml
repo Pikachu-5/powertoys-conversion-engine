@@ -37,7 +37,46 @@
       <Extensions>
         <desktop4:Extension Category="windows.fileExplorerContextMenus">
           <desktop4:FileExplorerContextMenus>
-            <desktop5:ItemType Type="*">
+            <desktop5:ItemType Type=".bmp">
+              <desktop5:Verb Id="FileConverterCommand" Clsid="57EC18F5-24D5-4DC6-AE2E-9D0F7A39F8BA" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type=".dib">
+              <desktop5:Verb Id="FileConverterCommand" Clsid="57EC18F5-24D5-4DC6-AE2E-9D0F7A39F8BA" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type=".gif">
+              <desktop5:Verb Id="FileConverterCommand" Clsid="57EC18F5-24D5-4DC6-AE2E-9D0F7A39F8BA" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type=".jfif">
+              <desktop5:Verb Id="FileConverterCommand" Clsid="57EC18F5-24D5-4DC6-AE2E-9D0F7A39F8BA" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type=".jpe">
+              <desktop5:Verb Id="FileConverterCommand" Clsid="57EC18F5-24D5-4DC6-AE2E-9D0F7A39F8BA" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type=".jpeg">
+              <desktop5:Verb Id="FileConverterCommand" Clsid="57EC18F5-24D5-4DC6-AE2E-9D0F7A39F8BA" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type=".jpg">
+              <desktop5:Verb Id="FileConverterCommand" Clsid="57EC18F5-24D5-4DC6-AE2E-9D0F7A39F8BA" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type=".jxr">
+              <desktop5:Verb Id="FileConverterCommand" Clsid="57EC18F5-24D5-4DC6-AE2E-9D0F7A39F8BA" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type=".tif">
+              <desktop5:Verb Id="FileConverterCommand" Clsid="57EC18F5-24D5-4DC6-AE2E-9D0F7A39F8BA" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type=".tiff">
+              <desktop5:Verb Id="FileConverterCommand" Clsid="57EC18F5-24D5-4DC6-AE2E-9D0F7A39F8BA" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type=".wdp">
+              <desktop5:Verb Id="FileConverterCommand" Clsid="57EC18F5-24D5-4DC6-AE2E-9D0F7A39F8BA" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type=".heic">
+              <desktop5:Verb Id="FileConverterCommand" Clsid="57EC18F5-24D5-4DC6-AE2E-9D0F7A39F8BA" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type=".heif">
+              <desktop5:Verb Id="FileConverterCommand" Clsid="57EC18F5-24D5-4DC6-AE2E-9D0F7A39F8BA" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type=".webp">
               <desktop5:Verb Id="FileConverterCommand" Clsid="57EC18F5-24D5-4DC6-AE2E-9D0F7A39F8BA" />
             </desktop5:ItemType>
           </desktop4:FileExplorerContextMenus>
