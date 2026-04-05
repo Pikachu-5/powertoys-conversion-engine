@@ -6,7 +6,9 @@
 #include <common/utils/process_path.h>
 #include <interface/powertoy_module_interface.h>
 
+#include <algorithm>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -19,6 +21,69 @@ namespace
     constexpr wchar_t MODULE_CONFIG[] = LR"({"name":"File Converter","version":"1.0","properties":{}})";
     constexpr wchar_t CONTEXT_MENU_PACKAGE_DISPLAY_NAME[] = L"FileConverterContextMenu";
     constexpr wchar_t CONTEXT_MENU_PACKAGE_FILE_NAME[] = L"FileConverterContextMenuPackage.msix";
+    constexpr wchar_t CONTEXT_MENU_PACKAGE_FILE_PREFIX[] = L"FileConverterContextMenuPackage";
+
+    std::optional<std::filesystem::path> find_latest_context_menu_package(const std::filesystem::path& context_menu_path)
+    {
+        const std::filesystem::path stable_package_path = context_menu_path / CONTEXT_MENU_PACKAGE_FILE_NAME;
+        if (std::filesystem::exists(stable_package_path))
+        {
+            return stable_package_path;
+        }
+
+        std::vector<std::filesystem::path> candidate_packages;
+        std::error_code ec;
+        for (std::filesystem::directory_iterator it(context_menu_path, ec); !ec && it != std::filesystem::directory_iterator(); it.increment(ec))
+        {
+            if (!it->is_regular_file(ec))
+            {
+                continue;
+            }
+
+            const auto file_name = it->path().filename().wstring();
+            const auto extension = it->path().extension().wstring();
+            if (_wcsicmp(extension.c_str(), L".msix") != 0)
+            {
+                continue;
+            }
+
+            if (file_name.rfind(CONTEXT_MENU_PACKAGE_FILE_PREFIX, 0) == 0)
+            {
+                candidate_packages.push_back(it->path());
+            }
+        }
+
+        if (candidate_packages.empty())
+        {
+            return std::nullopt;
+        }
+
+        std::sort(candidate_packages.begin(), candidate_packages.end(), [](const auto& lhs, const auto& rhs) {
+            std::error_code lhs_ec;
+            std::error_code rhs_ec;
+            const auto lhs_time = std::filesystem::last_write_time(lhs, lhs_ec);
+            const auto rhs_time = std::filesystem::last_write_time(rhs, rhs_ec);
+
+            if (lhs_ec && rhs_ec)
+            {
+                return lhs.wstring() < rhs.wstring();
+            }
+
+            if (lhs_ec)
+            {
+                return true;
+            }
+
+            if (rhs_ec)
+            {
+                return false;
+            }
+
+            return lhs_time < rhs_time;
+        });
+
+        return candidate_packages.back();
+    }
 
     std::vector<std::wstring> split(const std::wstring& source, wchar_t delimiter)
     {
@@ -68,16 +133,22 @@ namespace
             return;
         }
 
-        const std::wstring module_path = get_module_folderpath(reinterpret_cast<HMODULE>(&__ImageBase));
-        const std::wstring package_uri = module_path + L"\\" + CONTEXT_MENU_PACKAGE_FILE_NAME;
-        if (!std::filesystem::exists(package_uri))
+        const std::filesystem::path module_path = get_module_folderpath(reinterpret_cast<HMODULE>(&__ImageBase));
+        const std::filesystem::path context_menu_path = module_path / L"WinUI3Apps";
+        if (!std::filesystem::exists(context_menu_path))
+        {
+            return;
+        }
+
+        const auto package_path = find_latest_context_menu_package(context_menu_path);
+        if (!package_path.has_value())
         {
             return;
         }
 
         if (!package::IsPackageRegisteredWithPowerToysVersion(CONTEXT_MENU_PACKAGE_DISPLAY_NAME))
         {
-            (void)package::RegisterSparsePackage(module_path, package_uri);
+            (void)package::RegisterSparsePackage(context_menu_path.wstring(), package_path->wstring());
         }
     }
 }
