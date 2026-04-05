@@ -4,6 +4,7 @@
 
 #include <filesystem>
 #include <string>
+#include <ShlObj.h>
 
 using namespace Microsoft::WRL;
 
@@ -20,7 +21,7 @@ BOOL APIENTRY DllMain(HMODULE module_handle, DWORD reason, LPVOID)
 }
 
 class __declspec(uuid("57EC18F5-24D5-4DC6-AE2E-9D0F7A39F8BA")) FileConverterContextMenuCommand final :
-    public RuntimeClass<RuntimeClassFlags<ClassicCom>, IExplorerCommand, IObjectWithSite>
+    public RuntimeClass<RuntimeClassFlags<ClassicCom>, IExplorerCommand, IObjectWithSite, IShellExtInit, IContextMenu>
 {
 public:
     IFACEMETHODIMP GetTitle(_In_opt_ IShellItemArray*, _Outptr_result_nullonfailure_ PWSTR* name)
@@ -59,20 +60,10 @@ public:
         const HRESULT path_hr = get_first_selected_path(selection, path);
         if (FAILED(path_hr))
         {
-            return path_hr;
-        }
-
-        const wchar_t* extension = PathFindExtension(path.c_str());
-        if (extension == nullptr || extension[0] == L'\0')
-        {
             return S_OK;
         }
 
-#pragma warning(suppress : 26812)
-        PERCEIVED type = PERCEIVED_TYPE_UNSPECIFIED;
-        PERCEIVEDFLAG flags = PERCEIVEDFLAG_UNDEFINED;
-        AssocGetPerceivedType(extension, &type, &flags, nullptr);
-        if (type == PERCEIVED_TYPE_IMAGE)
+        if (should_enable_for_path(path))
         {
             *cmd_state = ECS_ENABLED;
         }
@@ -94,12 +85,12 @@ public:
             return path_hr;
         }
 
-        const std::filesystem::path input_path(path);
-        std::filesystem::path output_path = input_path.parent_path() / input_path.stem();
-        output_path += L"_converted.png";
+        if (!should_enable_for_path(path))
+        {
+            return E_INVALIDARG;
+        }
 
-        const auto conversion = file_converter::ConvertImageFile(input_path.wstring(), output_path.wstring(), file_converter::ImageFormat::Png);
-        return conversion.hr;
+        return convert_to_png(path);
     }
 
     IFACEMETHODIMP GetFlags(_Out_ EXPCMDFLAGS* flags)
@@ -125,7 +116,103 @@ public:
         return m_site.CopyTo(riid, site);
     }
 
+    // IShellExtInit
+    IFACEMETHODIMP Initialize(_In_opt_ PCIDLIST_ABSOLUTE, _In_opt_ IDataObject* data_object, _In_opt_ HKEY)
+    {
+        m_data_object = data_object;
+        return S_OK;
+    }
+
+    // IContextMenu
+    IFACEMETHODIMP QueryContextMenu(HMENU menu, UINT index_menu, UINT id_cmd_first, UINT, UINT flags)
+    {
+        if (menu == nullptr)
+        {
+            return E_INVALIDARG;
+        }
+
+        if ((flags & CMF_DEFAULTONLY) != 0 || m_data_object == nullptr)
+        {
+            return MAKE_HRESULT(SEVERITY_SUCCESS, FACILITY_NULL, 0);
+        }
+
+        std::wstring path;
+        if (FAILED(get_first_selected_path(m_data_object.Get(), path)) || !should_enable_for_path(path))
+        {
+            return MAKE_HRESULT(SEVERITY_SUCCESS, FACILITY_NULL, 0);
+        }
+
+        if (!InsertMenuW(menu, index_menu, MF_BYPOSITION | MF_STRING, id_cmd_first, L"Convert to PNG"))
+        {
+            return HRESULT_FROM_WIN32(GetLastError());
+        }
+
+        return MAKE_HRESULT(SEVERITY_SUCCESS, FACILITY_NULL, 1);
+    }
+
+    IFACEMETHODIMP InvokeCommand(CMINVOKECOMMANDINFO* invoke_info)
+    {
+        if (invoke_info == nullptr || m_data_object == nullptr)
+        {
+            return E_INVALIDARG;
+        }
+
+        if (!IS_INTRESOURCE(invoke_info->lpVerb) || LOWORD(invoke_info->lpVerb) != 0)
+        {
+            return E_FAIL;
+        }
+
+        std::wstring path;
+        const auto path_hr = get_first_selected_path(m_data_object.Get(), path);
+        if (FAILED(path_hr))
+        {
+            return path_hr;
+        }
+
+        if (!should_enable_for_path(path))
+        {
+            return E_INVALIDARG;
+        }
+
+        return convert_to_png(path);
+    }
+
+    IFACEMETHODIMP GetCommandString(UINT_PTR, UINT, UINT*, LPSTR, UINT)
+    {
+        return E_NOTIMPL;
+    }
+
 private:
+    bool should_enable_for_path(const std::wstring& path)
+    {
+        const wchar_t* extension = PathFindExtension(path.c_str());
+        if (extension == nullptr || extension[0] == L'\0')
+        {
+            return false;
+        }
+
+        if (_wcsicmp(extension, L".png") == 0)
+        {
+            return false;
+        }
+
+#pragma warning(suppress : 26812)
+        PERCEIVED type = PERCEIVED_TYPE_UNSPECIFIED;
+        PERCEIVEDFLAG flags = PERCEIVEDFLAG_UNDEFINED;
+        AssocGetPerceivedType(extension, &type, &flags, nullptr);
+        return type == PERCEIVED_TYPE_IMAGE;
+    }
+
+    HRESULT convert_to_png(const std::wstring& path)
+    {
+        const std::filesystem::path input_path(path);
+        std::filesystem::path output_path = input_path.parent_path() / input_path.stem();
+        output_path += L"_converted.png";
+
+        const auto conversion = file_converter::ConvertImageFile(input_path.wstring(), output_path.wstring(), file_converter::ImageFormat::Png);
+        return conversion.hr;
+    }
+
     HRESULT get_first_selected_path(IShellItemArray* selection, std::wstring& path)
     {
         ComPtr<IShellItem> item;
@@ -158,7 +245,25 @@ private:
         return S_OK;
     }
 
+    HRESULT get_first_selected_path(IDataObject* data_object, std::wstring& path)
+    {
+        if (data_object == nullptr)
+        {
+            return E_INVALIDARG;
+        }
+
+        ComPtr<IShellItemArray> shell_item_array;
+        const HRESULT hr = SHCreateShellItemArrayFromDataObject(data_object, IID_PPV_ARGS(&shell_item_array));
+        if (FAILED(hr))
+        {
+            return hr;
+        }
+
+        return get_first_selected_path(shell_item_array.Get(), path);
+    }
+
     ComPtr<IUnknown> m_site;
+    ComPtr<IDataObject> m_data_object;
 };
 
 CoCreatableClass(FileConverterContextMenuCommand)

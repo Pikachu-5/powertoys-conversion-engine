@@ -4,6 +4,7 @@
 #include <winrt/Windows.Foundation.Collections.h>
 #include <common/utils/package.h>
 #include <common/utils/process_path.h>
+#include <common/utils/shell_ext_registration.h>
 #include <interface/powertoy_module_interface.h>
 
 #include <algorithm>
@@ -22,6 +23,39 @@ namespace
     constexpr wchar_t CONTEXT_MENU_PACKAGE_DISPLAY_NAME[] = L"FileConverterContextMenu";
     constexpr wchar_t CONTEXT_MENU_PACKAGE_FILE_NAME[] = L"FileConverterContextMenuPackage.msix";
     constexpr wchar_t CONTEXT_MENU_PACKAGE_FILE_PREFIX[] = L"FileConverterContextMenuPackage";
+    constexpr wchar_t CONTEXT_MENU_HANDLER_CLSID[] = L"{57EC18F5-24D5-4DC6-AE2E-9D0F7A39F8BA}";
+
+    runtime_shell_ext::Spec build_win10_context_menu_spec()
+    {
+        runtime_shell_ext::Spec spec;
+        spec.clsid = CONTEXT_MENU_HANDLER_CLSID;
+        spec.sentinelKey = L"Software\\Microsoft\\PowerToys\\FileConverter";
+        spec.sentinelValue = L"ContextMenuRegisteredWin10";
+        spec.dllFileCandidates = {
+            L"WinUI3Apps\\PowerToys.FileConverterContextMenu.dll",
+            L"PowerToys.FileConverterContextMenu.dll",
+        };
+        spec.friendlyName = L"File Converter Context Menu";
+        spec.systemFileAssocHandlerName = L"FileConverterContextMenu";
+        spec.representativeSystemExt = L".bmp";
+        spec.systemFileAssocExtensions = {
+            L".bmp",
+            L".dib",
+            L".gif",
+            L".jfif",
+            L".jpe",
+            L".jpeg",
+            L".jpg",
+            L".jxr",
+            L".tif",
+            L".tiff",
+            L".wdp",
+            L".heic",
+            L".heif",
+            L".webp",
+        };
+        return spec;
+    }
 
     std::optional<std::filesystem::path> find_latest_context_menu_package(const std::filesystem::path& context_menu_path)
     {
@@ -151,6 +185,26 @@ namespace
             (void)package::RegisterSparsePackage(context_menu_path.wstring(), package_path->wstring());
         }
     }
+
+    void ensure_context_menu_runtime_registered()
+    {
+        if (package::IsWin11OrGreater())
+        {
+            return;
+        }
+
+        (void)runtime_shell_ext::EnsureRegistered(build_win10_context_menu_spec(), reinterpret_cast<HMODULE>(&__ImageBase));
+    }
+
+    void unregister_context_menu_runtime()
+    {
+        if (package::IsWin11OrGreater())
+        {
+            return;
+        }
+
+        runtime_shell_ext::Unregister(build_win10_context_menu_spec());
+    }
 }
 
 class FileConverterModule : public PowertoyModuleIface
@@ -218,11 +272,13 @@ public:
     void enable() override
     {
         ensure_context_menu_package_registered();
+        ensure_context_menu_runtime_registered();
         m_enabled = true;
     }
 
     void disable() override
     {
+        unregister_context_menu_runtime();
         m_enabled = false;
     }
 
