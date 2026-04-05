@@ -1,8 +1,14 @@
 #include "pch.h"
 
 #include <FileConversionEngine.h>
+<<<<<<< Updated upstream
 #include <nlohmann/json.hpp>
 #include <winrt/Windows.Foundation.Collections.h>
+=======
+#include <winrt/Windows.Data.Json.h>
+#include <winrt/Windows.Foundation.Collections.h>
+#include <winrt/base.h>
+>>>>>>> Stashed changes
 #include <common/logger/logger.h>
 #include <common/utils/package.h>
 #include <common/utils/process_path.h>
@@ -12,18 +18,25 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+<<<<<<< Updated upstream
 #include <condition_variable>
 #include <cwctype>
+=======
+>>>>>>> Stashed changes
 #include <filesystem>
 #include <mutex>
 #include <optional>
 #include <queue>
 #include <string>
 #include <thread>
+<<<<<<< Updated upstream
 #include <unordered_set>
+=======
+>>>>>>> Stashed changes
 #include <vector>
 
 extern "C" IMAGE_DOS_HEADER __ImageBase;
+namespace json = winrt::Windows::Data::Json;
 
 namespace
 {
@@ -35,8 +48,20 @@ namespace
     constexpr wchar_t CONTEXT_MENU_PACKAGE_FILE_PREFIX[] = L"FileConverterContextMenuPackage";
     constexpr wchar_t CONTEXT_MENU_HANDLER_CLSID[] = L"{57EC18F5-24D5-4DC6-AE2E-9D0F7A39F8BA}";
     constexpr wchar_t PIPE_NAME_PREFIX[] = L"\\\\.\\pipe\\powertoys_fileconverter_";
+<<<<<<< Updated upstream
     constexpr char ACTION_FORMAT_CONVERT[] = "FormatConvert";
     constexpr size_t PIPE_READ_BUFFER_SIZE = 8192;
+=======
+
+    struct ConversionSummary
+    {
+        size_t succeeded = 0;
+        size_t missing_inputs = 0;
+        size_t failed = 0;
+        std::wstring first_failed_path;
+        std::wstring first_failed_error;
+    };
+>>>>>>> Stashed changes
 
     runtime_shell_ext::Spec build_win10_context_menu_spec()
     {
@@ -132,6 +157,7 @@ namespace
         return candidate_packages.back();
     }
 
+<<<<<<< Updated upstream
     DWORD get_desktop_session_id()
     {
         DWORD session_id = 0;
@@ -180,6 +206,8 @@ namespace
         return value;
     }
 
+=======
+>>>>>>> Stashed changes
     file_converter::ImageFormat parse_format(const std::wstring& value)
     {
         const std::wstring lower = to_lower(value);
@@ -202,6 +230,7 @@ namespace
         return file_converter::ImageFormat::Png;
     }
 
+<<<<<<< Updated upstream
     std::filesystem::path build_output_path(const std::filesystem::path& input_path, const std::wstring& destination)
     {
         std::filesystem::path output_path = input_path.parent_path() / input_path.stem();
@@ -268,10 +297,62 @@ namespace
         for (const auto& file : parsed["files"])
         {
             if (!file.is_string())
+=======
+    std::wstring extension_for_format(file_converter::ImageFormat format)
+    {
+        switch (format)
+        {
+        case file_converter::ImageFormat::Jpeg:
+            return L".jpg";
+        case file_converter::ImageFormat::Bmp:
+            return L".bmp";
+        case file_converter::ImageFormat::Tiff:
+            return L".tiff";
+        case file_converter::ImageFormat::Png:
+        default:
+            return L".png";
+        }
+    }
+
+    std::wstring get_pipe_name_for_current_session()
+    {
+        DWORD session_id = 0;
+        if (!ProcessIdToSessionId(GetCurrentProcessId(), &session_id))
+        {
+            session_id = 0;
+        }
+
+        return std::wstring(PIPE_NAME_PREFIX) + std::to_wstring(session_id);
+    }
+
+    std::string read_pipe_message(HANDLE pipe_handle)
+    {
+        constexpr DWORD buffer_size = 4096;
+        char buffer[buffer_size] = {};
+        std::string payload;
+
+        while (true)
+        {
+            DWORD bytes_read = 0;
+            const BOOL read_ok = ReadFile(pipe_handle, buffer, buffer_size, &bytes_read, nullptr);
+            if (bytes_read > 0)
+            {
+                payload.append(buffer, bytes_read);
+            }
+
+            if (read_ok)
+            {
+                break;
+            }
+
+            const DWORD read_error = GetLastError();
+            if (read_error == ERROR_MORE_DATA)
+>>>>>>> Stashed changes
             {
                 continue;
             }
 
+<<<<<<< Updated upstream
             std::wstring file_path = utf8_to_wide(file.get<std::string>());
             if (!file_path.empty())
             {
@@ -285,6 +366,152 @@ namespace
         }
 
         return request;
+=======
+            if (read_error == ERROR_BROKEN_PIPE)
+            {
+                break;
+            }
+
+            Logger::warn(L"File Converter pipe read failed. Error={}", read_error);
+            payload.clear();
+            break;
+        }
+
+        return payload;
+    }
+
+    bool try_parse_format_convert_request(
+        const std::string& payload,
+        std::vector<std::wstring>& files,
+        file_converter::ImageFormat& format,
+        size_t& skipped_entries,
+        std::wstring& rejection_reason)
+    {
+        files.clear();
+        format = file_converter::ImageFormat::Png;
+        skipped_entries = 0;
+        rejection_reason.clear();
+
+        if (payload.empty())
+        {
+            rejection_reason = L"empty payload";
+            return false;
+        }
+
+        json::JsonObject json_payload;
+        if (!json::JsonObject::TryParse(winrt::to_hstring(payload), json_payload))
+        {
+            rejection_reason = L"invalid JSON";
+            return false;
+        }
+
+        if (!json_payload.HasKey(L"action"))
+        {
+            rejection_reason = L"missing action";
+            return false;
+        }
+
+        const auto action_value = json_payload.GetNamedValue(L"action");
+        if (action_value.ValueType() != json::JsonValueType::String)
+        {
+            rejection_reason = L"action is not a string";
+            return false;
+        }
+
+        const auto action = json_payload.GetNamedString(L"action");
+        if (_wcsicmp(action.c_str(), L"FormatConvert") != 0)
+        {
+            rejection_reason = L"unsupported action";
+            return false;
+        }
+
+        std::wstring destination = L"png";
+        if (json_payload.HasKey(L"destination"))
+        {
+            const auto destination_value = json_payload.GetNamedValue(L"destination");
+            if (destination_value.ValueType() == json::JsonValueType::String)
+            {
+                destination = json_payload.GetNamedString(L"destination").c_str();
+            }
+        }
+
+        if (!json_payload.HasKey(L"files"))
+        {
+            rejection_reason = L"missing files array";
+            return false;
+        }
+
+        const auto files_value = json_payload.GetNamedValue(L"files");
+        if (files_value.ValueType() != json::JsonValueType::Array)
+        {
+            rejection_reason = L"files is not an array";
+            return false;
+        }
+
+        const auto files_array = json_payload.GetNamedArray(L"files");
+        for (const auto& file_value : files_array)
+        {
+            if (file_value.ValueType() != json::JsonValueType::String)
+            {
+                ++skipped_entries;
+                continue;
+            }
+
+            const auto file_path = file_value.GetString();
+            if (file_path.empty())
+            {
+                ++skipped_entries;
+                continue;
+            }
+
+            files.push_back(file_path.c_str());
+        }
+
+        if (files.empty())
+        {
+            rejection_reason = L"no valid file paths";
+            return false;
+        }
+
+        format = parse_format(destination);
+        return true;
+    }
+
+    ConversionSummary process_format_convert_request(const std::vector<std::wstring>& files, file_converter::ImageFormat format)
+    {
+        ConversionSummary summary;
+        const std::wstring output_extension = extension_for_format(format);
+
+        for (const auto& file : files)
+        {
+            const std::filesystem::path input_path(file);
+            if (input_path.empty() || !std::filesystem::exists(input_path))
+            {
+                ++summary.missing_inputs;
+                continue;
+            }
+
+            std::filesystem::path output_path = input_path.parent_path() / input_path.stem();
+            output_path += L"_converted";
+            output_path += output_extension;
+
+            const auto conversion = file_converter::ConvertImageFile(input_path.wstring(), output_path.wstring(), format);
+            if (conversion.succeeded())
+            {
+                ++summary.succeeded;
+                continue;
+            }
+
+            ++summary.failed;
+            if (summary.first_failed_path.empty())
+            {
+                summary.first_failed_path = input_path.wstring();
+                summary.first_failed_error = conversion.error_message;
+            }
+        }
+
+        return summary;
+>>>>>>> Stashed changes
     }
 
     void ensure_context_menu_package_registered()
@@ -629,9 +856,15 @@ namespace
 class FileConverterModule : public PowertoyModuleIface
 {
 public:
+<<<<<<< Updated upstream
     FileConverterModule()
     {
         m_pipe_listener.start();
+=======
+    ~FileConverterModule()
+    {
+        disable();
+>>>>>>> Stashed changes
     }
 
     void destroy() override
@@ -669,19 +902,59 @@ public:
 
     void call_custom_action(const wchar_t* /*action*/) override
     {
+<<<<<<< Updated upstream
+=======
+        if (action == nullptr)
+        {
+            return;
+        }
+
+        handle_payload(winrt::to_string(action));
+>>>>>>> Stashed changes
     }
 
     void enable() override
     {
+        if (m_enabled)
+        {
+            return;
+        }
+
         ensure_context_menu_package_registered();
         ensure_context_menu_runtime_registered();
+<<<<<<< Updated upstream
         m_pipe_listener.start();
+=======
+
+        m_pipe_name = get_pipe_name_for_current_session();
+        m_stop_requested.store(false);
+        m_listener_thread = std::thread([this]() {
+            run_listener();
+        });
+
+>>>>>>> Stashed changes
         m_enabled = true;
     }
 
     void disable() override
     {
+<<<<<<< Updated upstream
         m_pipe_listener.stop();
+=======
+        if (!m_enabled && !m_listener_thread.joinable())
+        {
+            return;
+        }
+
+        m_stop_requested.store(true);
+        signal_listener_shutdown();
+
+        if (m_listener_thread.joinable())
+        {
+            m_listener_thread.join();
+        }
+
+>>>>>>> Stashed changes
         unregister_context_menu_runtime();
         m_enabled = false;
     }
@@ -692,8 +965,131 @@ public:
     }
 
 private:
+    void handle_payload(const std::string& payload)
+    {
+        std::vector<std::wstring> files;
+        file_converter::ImageFormat format = file_converter::ImageFormat::Png;
+        size_t skipped_entries = 0;
+        std::wstring rejection_reason;
+        if (!try_parse_format_convert_request(payload, files, format, skipped_entries, rejection_reason))
+        {
+            if (!rejection_reason.empty())
+            {
+                Logger::warn(L"File Converter ignored malformed request: {}", rejection_reason);
+            }
+
+            return;
+        }
+
+        const auto summary = process_format_convert_request(files, format);
+
+        if (skipped_entries > 0)
+        {
+            Logger::warn(L"File Converter request skipped {} invalid file entries.", skipped_entries);
+        }
+
+        if (summary.missing_inputs > 0)
+        {
+            Logger::warn(L"File Converter request skipped {} missing input files.", summary.missing_inputs);
+        }
+
+        if (summary.failed > 0)
+        {
+            Logger::warn(L"File Converter conversion failed for {} file(s).", summary.failed);
+            if (!summary.first_failed_path.empty())
+            {
+                Logger::warn(L"First conversion failure: path='{}' reason='{}'", summary.first_failed_path, summary.first_failed_error);
+            }
+        }
+    }
+
+    void run_listener()
+    {
+        while (!m_stop_requested.load())
+        {
+            HANDLE pipe_handle = CreateNamedPipeW(
+                m_pipe_name.c_str(),
+                PIPE_ACCESS_INBOUND,
+                PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+                PIPE_UNLIMITED_INSTANCES,
+                0,
+                4096,
+                0,
+                nullptr);
+
+            if (pipe_handle == INVALID_HANDLE_VALUE)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                continue;
+            }
+
+            const BOOL connected = ConnectNamedPipe(pipe_handle, nullptr) ? TRUE : (GetLastError() == ERROR_PIPE_CONNECTED);
+            if (!connected)
+            {
+                CloseHandle(pipe_handle);
+                if (!m_stop_requested.load())
+                {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                }
+
+                continue;
+            }
+
+            const std::string payload = read_pipe_message(pipe_handle);
+
+            FlushFileBuffers(pipe_handle);
+            DisconnectNamedPipe(pipe_handle);
+            CloseHandle(pipe_handle);
+
+            if (m_stop_requested.load())
+            {
+                break;
+            }
+
+            handle_payload(payload);
+        }
+    }
+
+    void signal_listener_shutdown() const
+    {
+        if (m_pipe_name.empty())
+        {
+            return;
+        }
+
+        if (!WaitNamedPipeW(m_pipe_name.c_str(), 100))
+        {
+            return;
+        }
+
+        HANDLE pipe_handle = CreateFileW(
+            m_pipe_name.c_str(),
+            GENERIC_WRITE,
+            0,
+            nullptr,
+            OPEN_EXISTING,
+            0,
+            nullptr);
+
+        if (pipe_handle == INVALID_HANDLE_VALUE)
+        {
+            return;
+        }
+
+        constexpr char shutdown_message[] = "{}";
+        DWORD bytes_written = 0;
+        (void)WriteFile(pipe_handle, shutdown_message, sizeof(shutdown_message) - 1, &bytes_written, nullptr);
+        CloseHandle(pipe_handle);
+    }
+
     bool m_enabled = false;
+<<<<<<< Updated upstream
     FileConverterPipeListener m_pipe_listener;
+=======
+    std::atomic<bool> m_stop_requested = false;
+    std::thread m_listener_thread;
+    std::wstring m_pipe_name;
+>>>>>>> Stashed changes
 };
 
 extern "C" __declspec(dllexport) PowertoyModuleIface* __cdecl powertoy_create()

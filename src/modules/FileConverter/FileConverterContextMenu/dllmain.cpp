@@ -1,14 +1,203 @@
 #include "pch.h"
 
+<<<<<<< Updated upstream
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <filesystem>
 #include <string>
 #include <vector>
+=======
+>>>>>>> Stashed changes
 #include <ShlObj.h>
+#include <winrt/Windows.Foundation.Collections.h>
+#include <winrt/Windows.Data.Json.h>
+#include <winrt/base.h>
+
+#include <string>
+#include <vector>
 
 using namespace Microsoft::WRL;
+namespace json = winrt::Windows::Data::Json;
+
+namespace
+{
+    constexpr wchar_t pipe_name_prefix[] = L"\\\\.\\pipe\\powertoys_fileconverter_";
+    constexpr DWORD pipe_connect_timeout_ms = 1000;
+
+    std::wstring get_pipe_name_for_current_session()
+    {
+        DWORD session_id = 0;
+        if (!ProcessIdToSessionId(GetCurrentProcessId(), &session_id))
+        {
+            session_id = 0;
+        }
+
+        return std::wstring(pipe_name_prefix) + std::to_wstring(session_id);
+    }
+
+    HRESULT get_selected_paths(IShellItemArray* selection, std::vector<std::wstring>& paths)
+    {
+        if (selection == nullptr)
+        {
+            return E_INVALIDARG;
+        }
+
+        paths.clear();
+
+        DWORD count = 0;
+        const HRESULT count_hr = selection->GetCount(&count);
+        if (FAILED(count_hr))
+        {
+            return count_hr;
+        }
+
+        for (DWORD i = 0; i < count; ++i)
+        {
+            ComPtr<IShellItem> item;
+            const HRESULT item_hr = selection->GetItemAt(i, &item);
+            if (FAILED(item_hr) || item == nullptr)
+            {
+                continue;
+            }
+
+            PWSTR path_value = nullptr;
+            const HRESULT path_hr = item->GetDisplayName(SIGDN_FILESYSPATH, &path_value);
+            if (FAILED(path_hr) || path_value == nullptr || path_value[0] == L'\0')
+            {
+                if (path_value != nullptr)
+                {
+                    CoTaskMemFree(path_value);
+                }
+
+                continue;
+            }
+
+            paths.emplace_back(path_value);
+            CoTaskMemFree(path_value);
+        }
+
+        return paths.empty() ? E_FAIL : S_OK;
+    }
+
+    HRESULT get_selected_paths(IDataObject* data_object, std::vector<std::wstring>& paths)
+    {
+        if (data_object == nullptr)
+        {
+            return E_INVALIDARG;
+        }
+
+        ComPtr<IShellItemArray> shell_item_array;
+        const HRESULT hr = SHCreateShellItemArrayFromDataObject(data_object, IID_PPV_ARGS(&shell_item_array));
+        if (FAILED(hr))
+        {
+            return hr;
+        }
+
+        return get_selected_paths(shell_item_array.Get(), paths);
+    }
+
+    bool should_enable_for_path(const std::wstring& path)
+    {
+        const wchar_t* extension = PathFindExtension(path.c_str());
+        if (extension == nullptr || extension[0] == L'\0')
+        {
+            return false;
+        }
+
+        if (_wcsicmp(extension, L".png") == 0)
+        {
+            return false;
+        }
+
+#pragma warning(suppress : 26812)
+        PERCEIVED type = PERCEIVED_TYPE_UNSPECIFIED;
+        PERCEIVEDFLAG flags = PERCEIVEDFLAG_UNDEFINED;
+        AssocGetPerceivedType(extension, &type, &flags, nullptr);
+        return type == PERCEIVED_TYPE_IMAGE;
+    }
+
+    bool should_enable_for_paths(const std::vector<std::wstring>& paths)
+    {
+        if (paths.empty())
+        {
+            return false;
+        }
+
+        for (const auto& path : paths)
+        {
+            if (!should_enable_for_path(path))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    std::string build_format_convert_payload(const std::vector<std::wstring>& paths)
+    {
+        json::JsonObject payload;
+        payload.Insert(L"action", json::JsonValue::CreateStringValue(L"FormatConvert"));
+        payload.Insert(L"destination", json::JsonValue::CreateStringValue(L"png"));
+
+        json::JsonArray files;
+        for (const auto& path : paths)
+        {
+            files.Append(json::JsonValue::CreateStringValue(path));
+        }
+
+        payload.Insert(L"files", files);
+        return winrt::to_string(payload.Stringify());
+    }
+
+    HRESULT send_format_convert_request(const std::vector<std::wstring>& paths)
+    {
+        if (!should_enable_for_paths(paths))
+        {
+            return E_INVALIDARG;
+        }
+
+        const std::wstring pipe_name = get_pipe_name_for_current_session();
+        if (!WaitNamedPipeW(pipe_name.c_str(), pipe_connect_timeout_ms))
+        {
+            return HRESULT_FROM_WIN32(GetLastError());
+        }
+
+        HANDLE pipe_handle = CreateFileW(
+            pipe_name.c_str(),
+            GENERIC_WRITE,
+            0,
+            nullptr,
+            OPEN_EXISTING,
+            0,
+            nullptr);
+
+        if (pipe_handle == INVALID_HANDLE_VALUE)
+        {
+            return HRESULT_FROM_WIN32(GetLastError());
+        }
+
+        const std::string payload = build_format_convert_payload(paths);
+        DWORD bytes_written = 0;
+        const BOOL write_result = WriteFile(
+            pipe_handle,
+            payload.data(),
+            static_cast<DWORD>(payload.size()),
+            &bytes_written,
+            nullptr);
+
+        const DWORD write_error = write_result ? ERROR_SUCCESS : GetLastError();
+        CloseHandle(pipe_handle);
+
+        if (!write_result || bytes_written != payload.size())
+        {
+            return HRESULT_FROM_WIN32(write_result ? ERROR_WRITE_FAULT : write_error);
+        }
+
+        return S_OK;
+    }
+}
 
 namespace
 {
@@ -202,13 +391,20 @@ public:
             return S_OK;
         }
 
+<<<<<<< Updated upstream
         std::vector<std::wstring> selected_paths;
         const HRESULT selected_paths_hr = get_selected_paths(selection, selected_paths);
         if (FAILED(selected_paths_hr))
+=======
+        std::vector<std::wstring> paths;
+        const HRESULT path_hr = get_selected_paths(selection, paths);
+        if (FAILED(path_hr))
+>>>>>>> Stashed changes
         {
             return S_OK;
         }
 
+<<<<<<< Updated upstream
         const bool has_supported_selection = std::any_of(
             selected_paths.begin(),
             selected_paths.end(),
@@ -217,6 +413,9 @@ public:
             });
 
         if (has_supported_selection)
+=======
+        if (should_enable_for_paths(paths))
+>>>>>>> Stashed changes
         {
             *cmd_state = ECS_ENABLED;
         }
@@ -226,11 +425,17 @@ public:
 
     IFACEMETHODIMP Invoke(_In_opt_ IShellItemArray* selection, _In_opt_ IBindCtx*)
     {
-        if (selection == nullptr)
+        if (selection != nullptr)
         {
-            return S_OK;
+            std::vector<std::wstring> paths;
+            const HRESULT paths_hr = get_selected_paths(selection, paths);
+            if (SUCCEEDED(paths_hr))
+            {
+                (void)send_format_convert_request(paths);
+            }
         }
 
+<<<<<<< Updated upstream
         std::vector<std::wstring> selected_paths;
         const HRESULT selected_paths_hr = get_selected_paths(selection, selected_paths);
         if (FAILED(selected_paths_hr))
@@ -248,6 +453,8 @@ public:
         }
 
         (void)send_pipe_request(supported_paths);
+=======
+>>>>>>> Stashed changes
         return S_OK;
     }
 
@@ -294,6 +501,7 @@ public:
             return MAKE_HRESULT(SEVERITY_SUCCESS, FACILITY_NULL, 0);
         }
 
+<<<<<<< Updated upstream
         std::vector<std::wstring> selected_paths;
         if (FAILED(get_selected_paths(m_data_object.Get(), selected_paths)))
         {
@@ -308,6 +516,10 @@ public:
             });
 
         if (!has_supported_selection)
+=======
+        std::vector<std::wstring> paths;
+        if (FAILED(get_selected_paths(m_data_object.Get(), paths)) || !should_enable_for_paths(paths))
+>>>>>>> Stashed changes
         {
             return MAKE_HRESULT(SEVERITY_SUCCESS, FACILITY_NULL, 0);
         }
@@ -332,13 +544,20 @@ public:
             return S_OK;
         }
 
+<<<<<<< Updated upstream
         std::vector<std::wstring> selected_paths;
         const HRESULT selected_paths_hr = get_selected_paths(m_data_object.Get(), selected_paths);
         if (FAILED(selected_paths_hr))
+=======
+        std::vector<std::wstring> paths;
+        const HRESULT paths_hr = get_selected_paths(m_data_object.Get(), paths);
+        if (FAILED(paths_hr) || !should_enable_for_paths(paths))
+>>>>>>> Stashed changes
         {
             return S_OK;
         }
 
+<<<<<<< Updated upstream
         std::vector<std::wstring> supported_paths;
         for (const auto& path : selected_paths)
         {
@@ -349,6 +568,9 @@ public:
         }
 
         (void)send_pipe_request(supported_paths);
+=======
+        (void)send_format_convert_request(paths);
+>>>>>>> Stashed changes
         return S_OK;
     }
 
@@ -358,6 +580,7 @@ public:
     }
 
 private:
+<<<<<<< Updated upstream
     HRESULT get_selected_paths(IShellItemArray* selection, std::vector<std::wstring>& paths)
     {
         if (selection == nullptr)
@@ -419,6 +642,8 @@ private:
         return get_selected_paths(shell_item_array.Get(), paths);
     }
 
+=======
+>>>>>>> Stashed changes
     ComPtr<IUnknown> m_site;
     ComPtr<IDataObject> m_data_object;
 };

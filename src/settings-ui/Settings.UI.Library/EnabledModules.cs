@@ -55,6 +55,22 @@ namespace Microsoft.PowerToys.Settings.UI.Library
             }
         }
 
+        private bool fileConverter = true;
+
+        [JsonPropertyName("FileConverter")]
+        public bool FileConverter
+        {
+            get => fileConverter;
+            set
+            {
+                if (fileConverter != value)
+                {
+                    LogTelemetryEvent(value);
+                    fileConverter = value;
+                }
+            }
+        }
+
         private bool fileExplorerPreview = true;
 
         [JsonPropertyName("File Explorer Preview")]
